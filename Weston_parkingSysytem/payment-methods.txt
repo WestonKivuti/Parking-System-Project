@@ -1,0 +1,3 @@
+﻿mpesa
+card
+cash

@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Modern Parking Management System</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; padding: 0 15px; background: #f4f6f8; }
+  h1 { color: #1a2b4c; }
+  .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+  input, select, textarea { padding: 8px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+  button { padding: 8px 16px; background: #1a2b4c; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 5px; }
+  button:hover { background: #2c4270; }
+  .slots-display { font-size: 2.5em; font-weight: bold; color: #1a2b4c; text-align: center; padding: 10px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9em; }
+  th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
+  th { background: #1a2b4c; color: white; }
+  .hidden { display: none; }
+  .result { margin-top: 10px; font-weight: bold; }
+  .admin-badge { background: #c0392b; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; }
+  .client-badge { background: #27ae60; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; }
+
+  .slot-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 10px; }
+  .slot-box { aspect-ratio: 1; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+              font-weight: bold; color: white; font-size: 0.9em; cursor: default; transition: transform 0.15s; }
+  .slot-box:hover { transform: scale(1.08); }
+  .slot-free { background: #27ae60; }
+  .slot-occupied { background: #c0392b; }
+
+  .stats-row { display: flex; gap: 15px; flex-wrap: wrap; }
+  .stat-box { flex: 1; min-width: 140px; background: #1a2b4c; color: white; border-radius: 8px; padding: 15px; text-align: center; }
+  .stat-box .value { font-size: 1.8em; font-weight: bold; }
+  .stat-box .label { font-size: 0.8em; opacity: 0.85; }
+
+  #toastContainer { position: fixed; top: 15px; right: 15px; z-index: 999; }
+  .toast { background: #2c4270; color: white; padding: 10px 16px; border-radius: 6px; margin-bottom: 8px;
+           box-shadow: 0 2px 6px rgba(0,0,0,0.3); animation: slideIn 0.3s ease; }
+  .toast.error { background: #c0392b; }
+  .toast.success { background: #27ae60; }
+  @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+</style>
+</head>
+<body>
+
+<h1>Modern Parking Management System</h1>
+<div id="toastContainer"></div>
+
+<!-- ============ LOGIN SCREEN ============ -->
+<div id="loginSection" class="card">
+  <h2>Login</h2>
+  <input id="loginUsername" placeholder="Username">
+  <input id="loginPassword" type="password" placeholder="Password">
+  <button onclick="login()">Log In</button>
+  <p id="loginResult" class="result"></p>
+  <p style="font-size:0.85em; color:#666;">Demo accounts — admin: admin/admin123 &nbsp;|&nbsp; client: client/client123</p>
+</div>
+
+<!-- ============ MAIN DASHBOARD (shown after login) ============ -->
+<div id="dashboardSection" class="hidden">
+  <p>Logged in as <b id="currentUser"></b> <span id="roleBadge"></span> &nbsp; <a href="#" onclick="logout()">Log out</a></p>
+
+  <div class="card">
+    <h2>Live Slot Availability — Entrance Display</h2>
+    <div class="slots-display"><span id="availableCount">-</span> / <span id="totalCount">-</span> slots free</div>
+    <div id="slotGrid" class="slot-grid"></div>
+  </div>
+
+  <div class="card">
+    <div class="stats-row">
+      <div class="stat-box"><div class="value" id="statRevenue">0</div><div class="label">KES COLLECTED (ALL TIME)</div></div>
+      <div class="stat-box"><div class="value" id="statVehicles">0</div><div class="label">VEHICLES SERVED</div></div>
+      <div class="stat-box"><div class="value" id="statAvgDuration">0</div><div class="label">AVG STAY (MIN)</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Vehicle Entry</h2>
+    <input id="entryPlate" placeholder="Plate number">
+    <button onclick="vehicleEntry()">Enter</button>
+  </div>
+
+  <div class="card">
+    <h2>Vehicle Exit</h2>
+    <input id="exitPlate" placeholder="Plate number">
+    <select id="exitMethod"></select>
+    <button onclick="vehicleExit()">Exit</button>
+  </div>
+
+  <div class="card">
+    <h2>Currently Parked</h2>
+    <div id="activeTable"></div>
+  </div>
+
+  <div class="card">
+    <h2>Payment Receipts (Audit Log)</h2>
+    <button onclick="loadReceipts()">Refresh Receipts</button>
+    <div id="receiptsTable"></div>
+  </div>
+
+  <!-- ============ ADMIN PANEL (shown only for role=admin) ============ -->
+  <div id="adminSection" class="card hidden">
+    <h2>Admin Panel</h2>
+
+    <h3>Parking Rates (Tariffs)</h3>
+    <p style="font-size:0.85em; color:#666;">Format: maxMinutes,amount per line. Use -1 for the final "over X" tier.</p>
+    <textarea id="tariffText" rows="6"></textarea>
+    <button onclick="saveTariffs()">Save Rates</button>
+    <p id="tariffResult" class="result"></p>
+
+    <h3>Accepted Payment Methods</h3>
+    <p style="font-size:0.85em; color:#666;">One method per line (e.g. mpesa, card, cash)</p>
+    <textarea id="methodsText" rows="4"></textarea>
+    <button onclick="saveMethods()">Save Payment Methods</button>
+    <p id="methodsResult" class="result"></p>
+  </div>
+</div>
+
+<script>
+let token = null;
+let role = null;
+
+function showToast(message, type = '') {
+  const toast = document.createElement('div');
+  toast.className = 'toast' + (type ? ' ' + type : '');
+  toast.innerText = message;
+  document.getElementById('toastContainer').appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
+}
+
+async function login() {
+  const username = document.getElementById('loginUsername').value;
+  const password = document.getElementById('loginPassword').value;
+  const res = await fetch(`/login?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`);
+  const data = await res.json();
+  if (!res.ok) {
+    document.getElementById('loginResult').innerText = data.error || 'Login failed';
+    return;
+  }
+  token = data.token;
+  role = data.role;
+  document.getElementById('loginSection').classList.add('hidden');
+  document.getElementById('dashboardSection').classList.remove('hidden');
+  document.getElementById('currentUser').innerText = username;
+  document.getElementById('roleBadge').innerHTML = role === 'admin'
+    ? '<span class="admin-badge">ADMIN</span>' : '<span class="client-badge">CLIENT</span>';
+  if (role === 'admin') {
+    document.getElementById('adminSection').classList.remove('hidden');
+    loadTariffsIntoAdmin();
+    loadMethodsIntoAdmin();
+  }
+  refreshAvailability();
+  loadPaymentMethodsDropdown();
+  loadReceipts();
+  loadActiveVehicles();
+  showToast('Welcome, ' + username, 'success');
+}
+
+function logout() {
+  token = null; role = null;
+  document.getElementById('loginSection').classList.remove('hidden');
+  document.getElementById('dashboardSection').classList.add('hidden');
+  document.getElementById('adminSection').classList.add('hidden');
+}
+
+async function refreshAvailability() {
+  const res = await fetch('/availability');
+  const data = await res.json();
+  document.getElementById('availableCount').innerText = data.available;
+  document.getElementById('totalCount').innerText = data.total;
+  loadSlotGrid();
+}
+
+// Visual "display board" — a colored box per bay, red = occupied, green = free
+async function loadSlotGrid() {
+  if (!token) return;
+  const res = await fetch(`/slots?token=${token}`);
+  const slots = await res.json();
+  const grid = document.getElementById('slotGrid');
+  grid.innerHTML = slots.map(s =>
+    `<div class="slot-box ${s.occupied ? 'slot-occupied' : 'slot-free'}" title="${s.occupied ? s.plate : 'Free'}">
+       ${s.slotId}${s.occupied ? '<br><small>' + s.plate + '</small>' : ''}
+     </div>`
+  ).join('');
+}
+
+// Live list of vehicles currently parked, with a running "time parked" clock
+async function loadActiveVehicles() {
+  if (!token) return;
+  const res = await fetch(`/active?token=${token}`);
+  const active = await res.json();
+  if (active.length === 0) {
+    document.getElementById('activeTable').innerHTML = '<p>No vehicles currently parked.</p>';
+    return;
+  }
+  let html = '<table><tr><th>Plate</th><th>Slot</th><th>Entry Time</th><th>Time Parked</th></tr>';
+  const now = new Date();
+  active.forEach(a => {
+    const entered = new Date(a.entryTime);
+    const minutes = Math.max(0, Math.round((now - entered) / 60000));
+    html += `<tr><td>${a.plate}</td><td>${a.slotId}</td><td>${a.entryTime.replace('T',' ')}</td><td>${minutes} min</td></tr>`;
+  });
+  html += '</table>';
+  document.getElementById('activeTable').innerHTML = html;
+}
+
+// Dashboard stat cards, computed from the receipts audit log
+function updateStats(csv) {
+  const rows = csv.trim().split('\n').slice(1).filter(r => r.length > 0);
+  if (rows.length === 0) return;
+  let totalRevenue = 0, totalDuration = 0;
+  rows.forEach(r => {
+    const cols = r.split(',');
+    totalRevenue += parseFloat(cols[5]) || 0;
+    totalDuration += parseInt(cols[4]) || 0;
+  });
+  document.getElementById('statRevenue').innerText = totalRevenue.toFixed(0);
+  document.getElementById('statVehicles').innerText = rows.length;
+  document.getElementById('statAvgDuration').innerText = (totalDuration / rows.length).toFixed(0);
+}
+
+async function loadPaymentMethodsDropdown() {
+  const res = await fetch(`/payment-methods?token=${token}`);
+  const methods = await res.json();
+  const select = document.getElementById('exitMethod');
+  select.innerHTML = methods.map(m => `<option value="${m}">${m.toUpperCase()}</option>`).join('');
+}
+
+async function vehicleEntry() {
+  const plate = document.getElementById('entryPlate').value.trim();
+  if (!plate) { showToast('Enter a plate number', 'error'); return; }
+  const res = await fetch(`/entry?plate=${encodeURIComponent(plate)}&token=${token}`, { method: 'POST' });
+  const text = await res.text();
+  showToast(text, res.ok && !text.includes('FULL') && !text.includes('ERROR') ? 'success' : 'error');
+  if (res.ok) document.getElementById('entryPlate').value = '';
+  refreshAvailability();
+  loadActiveVehicles();
+}
+
+async function vehicleExit() {
+  const plate = document.getElementById('exitPlate').value.trim();
+  if (!plate) { showToast('Enter a plate number', 'error'); return; }
+  const method = document.getElementById('exitMethod').value;
+  const res = await fetch(`/exit?plate=${encodeURIComponent(plate)}&method=${method}&token=${token}`, { method: 'POST' });
+  const text = await res.text();
+  showToast(text, res.ok ? 'success' : 'error');
+  if (res.ok) document.getElementById('exitPlate').value = '';
+  refreshAvailability();
+  loadReceipts();
+  loadActiveVehicles();
+}
+
+async function loadReceipts() {
+  const res = await fetch(`/receipts?token=${token}`);
+  const csv = await res.text();
+  const rows = csv.trim().split('\n').map(r => r.split(','));
+  if (rows.length < 1) return;
+  let html = '<table><tr>' + rows[0].map(h => `<th>${h}</th>`).join('') + '</tr>';
+  for (let i = rows.length - 1; i > 0; i--) { // newest first
+    html += '<tr>' + rows[i].map(c => `<td>${c}</td>`).join('') + '</tr>';
+  }
+  html += '</table>';
+  document.getElementById('receiptsTable').innerHTML = html;
+  updateStats(csv);
+}
+
+async function loadTariffsIntoAdmin() {
+  const res = await fetch(`/admin/tariffs?token=${token}`);
+  document.getElementById('tariffText').value = await res.text();
+}
+
+async function saveTariffs() {
+  const content = document.getElementById('tariffText').value;
+  const res = await fetch(`/admin/tariffs?token=${token}`, { method: 'POST', body: content });
+  document.getElementById('tariffResult').innerText = await res.text();
+}
+
+async function loadMethodsIntoAdmin() {
+  const res = await fetch(`/admin/payment-methods?token=${token}`);
+  document.getElementById('methodsText').value = await res.text();
+}
+
+async function saveMethods() {
+  const content = document.getElementById('methodsText').value;
+  const res = await fetch(`/admin/payment-methods?token=${token}`, { method: 'POST', body: content });
+  document.getElementById('methodsResult').innerText = await res.text();
+  loadPaymentMethodsDropdown();
+}
+
+// Auto-refresh the live slot grid and "currently parked" timers every 5 seconds
+setInterval(() => {
+  if (token) { refreshAvailability(); loadActiveVehicles(); }
+}, 5000);
+</script>
+
+</body>
+</html>
